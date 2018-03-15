@@ -7,6 +7,7 @@
 enum status {none, waiting, requested, served, used};
 
 struct data_exchange {
+    //TODO: volatile variables
     status status = status::none;
     int requested_size = 0;
     int actual_size = 0;
@@ -32,10 +33,11 @@ __global__ void waitForDataRequest(data_exchange* dataExchange) {
 
 //from host when data are served to the GPU
 __global__ void dataResponse(data_exchange* requestMount) {
-    blockUntil(requestMount, status::waiting);
+    //blockUntil(requestMount, status::waiting);
     //TODO: copy things
 
     requestMount->status = status::served;
+    blockUntil(requestMount, status::used);
     return;
 }
 
@@ -54,8 +56,17 @@ __global__ void data_layer_gpu(data_exchange* requestMount) {
 
     requestData(requestMount);
     __syncthreads();
+
+    //TODO: add image on the ith position in the blob
+    //TODO: pass on the blob / return?
 }
 
+void thread2(data_exchange* cudaPrototype) {
+    //execute listener
+    //1 per block
+    waitForDataRequest<<<1, 1>>>(cudaPrototype);
+    dataResponse<<<1, 1>>>(cudaPrototype);
+}
 
 int main() {
     //do my foo bar
@@ -74,12 +85,4 @@ int main() {
 
     thread2(cudaPrototype);
     data_layer_gpu<<<1, 32>>>(cudaPrototype);
-}
-
-
-void thread2(data_exchange* cudaPrototype) {
-    //execute listener
-    //1 per block
-    waitForDataRequest<<<1, 1>>>(cudaPrototype);
-    dataResponse<<<1, 1>>>(cudaPrototype);
 }
