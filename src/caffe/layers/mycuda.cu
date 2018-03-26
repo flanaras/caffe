@@ -3,6 +3,9 @@
 #include <cuda_runtime_api.h>
 #include <caffe/util/device_alternate.hpp>
 
+// TODO: check offloading communication control logic in gpu paper for synchronisation techniques.
+// see cuStream{Write,Wait}Value32
+
 //typedef enum {none, waiting, requested, served} status;
 enum status {none, waiting, requested, served, used};
 
