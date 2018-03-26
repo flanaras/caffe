@@ -65,6 +65,8 @@ void thread2(data_exchange* cudaPrototype) {
     //execute listener
     //1 per block
     waitForDataRequest<<<1, 1>>>(cudaPrototype);
+
+    //TODO: copy things to gpu
     dataResponse<<<1, 1>>>(cudaPrototype);
 }
 
