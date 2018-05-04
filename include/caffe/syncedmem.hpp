@@ -71,6 +71,7 @@ class SyncedMemory {
 
 #ifndef CPU_ONLY
   void async_gpu_push(const cudaStream_t& stream);
+  void discard_gpu_data(const cudaStream_t& stream);
 #endif
 
  private:

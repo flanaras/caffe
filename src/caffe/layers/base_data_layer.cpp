@@ -87,6 +87,13 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
   try {
     while (!must_stop()) {
       Batch<Dtype>* batch = prefetch_free_.pop();
+#ifndef CPU_ONLY
+      if (Caffe::mode() == Caffe::GPU) {
+        batch->data_.data().get()->discard_gpu_data(stream);
+        batch->label_.data().get()->discard_gpu_data(stream);
+        LOG_IF(INFO, Caffe::root_solver()) << ">>>>>>>>>>>> PATCH IS RUNNING";
+      }
+#endif
       load_batch(batch);
 #ifndef CPU_ONLY
       if (Caffe::mode() == Caffe::GPU) {

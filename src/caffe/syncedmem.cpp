@@ -165,6 +165,11 @@ void SyncedMemory::async_gpu_push(const cudaStream_t& stream) {
   // Assume caller will synchronize on the stream before use
   head_ = SYNCED;
 }
+
+void SyncedMemory::discard_gpu_data(const cudaStream_t& stream) {
+  CHECK(head_ == HEAD_AT_GPU);
+  head_ = HEAD_AT_CPU;
+}
 #endif
 
 void SyncedMemory::check_device() {
