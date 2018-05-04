@@ -206,8 +206,31 @@ void Solver<Dtype>::Step(int iters) {
   smoothed_loss_ = 0;
   iteration_timer_.Start();
 
+  struct foo {
+      CPUTimer c;
+      Timer g;
+      float t;
+      void start() {
+        c.Start();
+        g.Start();
+      }
+      void stop() {
+        g.Stop();
+        c.Stop();
+      }
+  };
+
+  foo a;
+  foo sprec;
+  foo spostc;
+  foo sapplyupdate;
+  foo supdatesmoothedloss;
+  foo sgpu;
+
   while (iter_ < stop_iter) {
+    a.start();
     // zero-init the params
+    // TODO: can run on GPU
     net_->ClearParamDiffs();
     if (param_.test_interval() && iter_ % param_.test_interval() == 0
         && (iter_ > 0 || param_.test_initialization())) {
@@ -220,19 +243,41 @@ void Solver<Dtype>::Step(int iters) {
       }
     }
 
+    sprec.start();
+    // TODO: Serial
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_start();
     }
+    sprec.stop();
+
     const bool display = param_.display() && iter_ % param_.display() == 0;
     net_->set_debug_info(display && param_.debug_info());
     // accumulate the loss and gradient
     Dtype loss = 0;
+
+    sgpu.start();
+//    my_timer.Start();
+//    gmy_timer.Start();
     for (int i = 0; i < param_.iter_size(); ++i) {
+      // TODO: can run on GPU
       loss += net_->ForwardBackward();
     }
+    sgpu.stop();
+//    gpu = my_timer.MicroSeconds();
+//    ggpu = gmy_timer.MicroSeconds();
+
     loss /= param_.iter_size();
     // average the loss across iterations for smoothed reporting
+
+//    my_timer.Start();
+//    gmy_timer.Start();
+    supdatesmoothedloss.start();
+    // TODO: Serial
     UpdateSmoothedLoss(loss, start_iter, average_loss);
+    supdatesmoothedloss.stop();
+//    updatesmoothedloss = my_timer.MicroSeconds();
+//    gupdatesmoothedloss = gmy_timer.MicroSeconds();
+
     if (display) {
       float lapse = iteration_timer_.Seconds();
       float per_s = (iter_ - iterations_last_) / (lapse ? lapse : 1);
@@ -261,15 +306,75 @@ void Solver<Dtype>::Step(int iters) {
         }
       }
     }
+//    my_timer.Start();
+//    gmy_timer.Start();
+    spostc.start();
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_gradients_ready();
     }
+    spostc.stop();
+//    postc = my_timer.MicroSeconds();
+//    gpostc = gmy_timer.MicroSeconds();
+
+
+//    my_timer.Start();
+//    gmy_timer.Start();
+    sapplyupdate.start();
     ApplyUpdate();
+    sapplyupdate.stop();
+//    applyupdate = my_timer.MicroSeconds();
+//    gapplyupdate = gmy_timer.MicroSeconds();
 
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.
     ++iter_;
+    a.stop();
+//    gall = agmy_timer.MicroSeconds();
+//    all = amy_timer.MicroSeconds();
 
+    LOG_IF(INFO, Caffe::root_solver()) << "    CPU: "
+                                       << sprec.c.MicroSeconds() << ","
+                                       << sgpu.c.MicroSeconds() << ","
+                                       << supdatesmoothedloss.c.MicroSeconds() << ","
+                                       << spostc.c.MicroSeconds() << ","
+                                       << sapplyupdate.c.MicroSeconds() << ","
+                                       << a.c.MicroSeconds();
+
+    LOG_IF(INFO, Caffe::root_solver()) << "    GPU: "
+                                       << sprec.g.MicroSeconds() << ","
+                                       << sgpu.g.MicroSeconds() << ","
+                                       << supdatesmoothedloss.g.MicroSeconds() << ","
+                                       << spostc.g.MicroSeconds() << ","
+                                       << sapplyupdate.g.MicroSeconds() << ","
+                                       << a.g.MicroSeconds();
+
+//    LOG_IF(INFO, Caffe::root_solver()) << "    CPU: "
+//                                       << prec << ","
+//                                       << gpu << ","
+//                                       << updatesmoothedloss << ","
+//                                       << postc << ","
+//                                       << applyupdate << ","
+//                                       << all;
+//
+//    LOG_IF(INFO, Caffe::root_solver()) << "    GPU: "
+//                                       << gprec << ","
+//                                       << ggpu << ","
+//                                       << gupdatesmoothedloss << ","
+//                                       << gpostc << ","
+//                                       << gapplyupdate << ","
+//                                       << gall;
+
+//    LOG_IF(INFO, Caffe::root_solver()) << "    CPU Pre-callbacks: " << prec
+//                                       << " forward-backward: " << gpu
+//                                       << " updatesmoothedloss: " << updatesmoothedloss
+//                                       << " Post-callbacks: " << postc
+//                                       << " applyupdate: " << applyupdate;
+
+//    LOG_IF(INFO, Caffe::root_solver()) << "    GPU Pre-callbacks: " << gprec
+//                                       << " forward-backward: " << ggpu
+//                                       << " updatesmoothedloss: " << gupdatesmoothedloss
+//                                       << " Post-callbacks: " << gpostc
+//                                       << " applyupdate: " << gapplyupdate;
     SolverAction::Enum request = GetRequestedAction();
 
     // Save a snapshot if needed.
