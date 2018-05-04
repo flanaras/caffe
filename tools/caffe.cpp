@@ -11,6 +11,10 @@ namespace bp = boost::python;
 #include <string>
 #include <vector>
 
+// flanaras'
+#include <iostream>
+#include "caffe/layers/mycuda.cu"
+
 #include "boost/algorithm/string.hpp"
 #include "caffe/caffe.hpp"
 #include "caffe/util/signal_handler.h"
@@ -23,6 +27,7 @@ using caffe::Solver;
 using caffe::shared_ptr;
 using caffe::string;
 using caffe::Timer;
+using caffe::CPUTimer;
 using caffe::vector;
 using std::ostringstream;
 
@@ -368,11 +373,14 @@ int time() {
   total_timer.Start();
   Timer forward_timer;
   Timer backward_timer;
+  CPUTimer ctimer;
   Timer timer;
   std::vector<double> forward_time_per_layer(layers.size(), 0.0);
   std::vector<double> backward_time_per_layer(layers.size(), 0.0);
+  double ctime = 0.0f;
   double forward_time = 0.0;
   double backward_time = 0.0;
+  double pbackward_time = 0.0;
   for (int j = 0; j < FLAGS_iterations; ++j) {
     Timer iter_timer;
     iter_timer.Start();
@@ -385,11 +393,14 @@ int time() {
     forward_time += forward_timer.MicroSeconds();
     backward_timer.Start();
     for (int i = layers.size() - 1; i >= 0; --i) {
+      ctimer.Start();
       timer.Start();
+      ctime = ctimer.MicroSeconds();
       layers[i]->Backward(top_vecs[i], bottom_need_backward[i],
                           bottom_vecs[i]);
       backward_time_per_layer[i] += timer.MicroSeconds();
     }
+    ctime /= layers.size();
     backward_time += backward_timer.MicroSeconds();
     LOG(INFO) << "Iteration: " << j + 1 << " forward-backward time: "
       << iter_timer.MilliSeconds() << " ms.";
@@ -405,10 +416,17 @@ int time() {
       FLAGS_iterations << " ms.";
   }
   total_timer.Stop();
+  for (int i = layers.size() - 1; i >= 0; --i) {
+    pbackward_time += backward_time_per_layer[i];
+  }
   LOG(INFO) << "Average Forward pass: " << forward_time / 1000 /
     FLAGS_iterations << " ms.";
   LOG(INFO) << "Average Backward pass: " << backward_time / 1000 /
     FLAGS_iterations << " ms.";
+  LOG(INFO) << "Average Ctime: " << ctime / 1000 /
+                                            FLAGS_iterations << " ms.";
+  LOG(INFO) << "Average PBackward pass: " << pbackward_time / 1000 /
+                                            FLAGS_iterations << " ms.";
   LOG(INFO) << "Average Forward-Backward: " << total_timer.MilliSeconds() /
     FLAGS_iterations << " ms.";
   LOG(INFO) << "Total Time: " << total_timer.MilliSeconds() << " ms.";
