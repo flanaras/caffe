@@ -117,8 +117,11 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
   }
   prefetch_current_ = prefetch_full_.pop("Waiting for data");
   // Reshape to loaded data.
+  // TODO: this is on the data to be fed to the layer.
+  // TODO: It is mutable data because this data belong to the network
   top[0]->ReshapeLike(prefetch_current_->data_);
   top[0]->set_cpu_data(prefetch_current_->data_.mutable_cpu_data());
+  // TODO: sets sends the data to the server
   if (this->output_labels_) {
     // Reshape to loaded labels.
     top[1]->ReshapeLike(prefetch_current_->label_);
