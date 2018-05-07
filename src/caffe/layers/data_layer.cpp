@@ -87,7 +87,7 @@ void DataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   CPUTimer timer;
   CHECK(batch->data_.count());
   CHECK(this->transformed_data_.count());
-  const int batch_size = this->layer_param_.data_param().batch_size();
+  const int batch_size = this->layer_param_.data_param().batch_size() * BasePrefetchingDataLayer::batch_size_factor;
 
   Datum datum;
   for (int item_id = 0; item_id < batch_size; ++item_id) {
