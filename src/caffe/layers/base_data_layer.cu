@@ -1,7 +1,6 @@
 #include <caffe/util/benchmark.hpp>
 
 #include "caffe/layers/base_data_layer.hpp"
-#include "caffe/batch_handler.hpp"
 
 namespace caffe {
 
@@ -11,6 +10,12 @@ template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::Forward_gpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
 
+  if (this->layer_param_.phase() == TEST) {
+    LOG(WARNING) << "> >>>>>>>>>>>>>>>>>>>>> TEST";
+  } else {
+    LOG(WARNING) << "> >>>>>>>>>>>>>>>>>>>>> Train ,<<<<<<<<<<<<<<,";
+  }
+
   top[0]->Reshape(handler_->get_batch_data_shape());
   top[0]->set_gpu_data(handler_->get_batch_data_gpu_pointer_data());
 
@@ -19,7 +24,12 @@ void BasePrefetchingDataLayer<Dtype>::Forward_gpu(
     top[1]->set_gpu_data(handler_->get_batch_data_gpu_pointer_labels());
   }
 
+  LOG_IF(INFO, Caffe::root_solver()) << "DATA: " << typeid(Dtype).name() << " >>> " << top[0]->shape_string();
+  LOG_IF(INFO, Caffe::root_solver()) << "Label: " << typeid(float).name() << " >>> " <<  top[1]->shape_string();
+
   handler_->next();
+
+  LOG_IF(INFO, Caffe::root_solver()) << " NEXTAAAAAAAAAAAAAAAAA";
 }
 
 #else
@@ -41,8 +51,6 @@ void BasePrefetchingDataLayer<Dtype>::Forward_gpu(
   stop_cpu_2 = boost::posix_time::microsec_clock::local_time();
   // Reshape to loaded data.
 
-  LOG_IF(INFO, Caffe::root_solver()) << "DATA: " << typeid(Dtype).name() << " >>> " << prefetch_current_->data_.shape_string();
-  LOG_IF(INFO, Caffe::root_solver()) << "Label: " << typeid(float).name() << " >>> " <<  prefetch_current_->label_.shape_string();
 
 
   top[0]->ReshapeLike(prefetch_current_->data_);
@@ -52,6 +60,10 @@ void BasePrefetchingDataLayer<Dtype>::Forward_gpu(
     top[1]->ReshapeLike(prefetch_current_->label_);
     top[1]->set_gpu_data(prefetch_current_->label_.mutable_gpu_data());
   }
+
+  LOG_IF(INFO, Caffe::root_solver()) << "DATA: " << typeid(Dtype).name() << " >>> " << top[0]->shape_string();
+  LOG_IF(INFO, Caffe::root_solver()) << "Label: " << typeid(float).name() << " >>> " <<  top[1]->shape_string();
+
   LOG_IF(INFO, Caffe::root_solver()) << "data_layer-us: " << (stop_cpu_2- start_cpu_2).total_microseconds()
                                      << "," << (boost::posix_time::microsec_clock::local_time() -
           start_cpu_).total_microseconds();

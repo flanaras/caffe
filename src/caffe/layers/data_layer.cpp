@@ -28,7 +28,7 @@ DataLayer<Dtype>::~DataLayer() {
 template <typename Dtype>
 void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
-  const int batch_size = this->layer_param_.data_param().batch_size();
+  const int batch_size = this->layer_param_.data_param().batch_size() * caffe::Handler<Dtype>::super_batch_factor;
   // Read a data point, and use it to initialize the top blob.
   Datum datum;
   datum.ParseFromString(cursor_->value());
@@ -87,8 +87,9 @@ void DataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   CPUTimer timer;
   CHECK(batch->data_.count());
   CHECK(this->transformed_data_.count());
-  const int batch_size = this->layer_param_.data_param().batch_size() * BasePrefetchingDataLayer::batch_size_factor;
+  const int batch_size = this->layer_param_.data_param().batch_size() * caffe::Handler<Dtype>::super_batch_factor;
 
+  LOG(INFO) << "  >>> " << batch_size;
   Datum datum;
   for (int item_id = 0; item_id < batch_size; ++item_id) {
     timer.Start();

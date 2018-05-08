@@ -9,7 +9,6 @@
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
 #include "caffe/util/blocking_queue.hpp"
-#include "caffe/batch_handler.hpp"
 
 #include <vector>
 #include <deque>
@@ -58,7 +57,9 @@ namespace caffe {
     public:
       GPUKeeper(int number_of_batches, int batch_size, int size_of_item, vector<int> shape) : number_of_batches(number_of_batches),
                                                                                               BookKeeping(batch_size, size_of_item, shape) {
-        int sum = this->batch_size * number_of_batches * size_of_item;
+        unsigned int sum = number_of_batches * size_of_item;
+        // 227 * 227 * 3 * 256 * 4 * 4
+        LOG(WARNING) << "    bs: " << this->batch_size << " nob: " << number_of_batches << " soi: " << size_of_item;
         LOG(WARNING) << "    >> sum " << sum;
         CUDA_CHECK(cudaMalloc(&gpu_ptr, sum));
         CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
@@ -69,10 +70,11 @@ namespace caffe {
       }
 
       Dtype* get_gpu_ptr(int batch_id) {
-        return gpu_ptr + batch_id * this->size_of_batch();
+        return gpu_ptr + batch_id * this->size_of_batch() / sizeof(Dtype);
       }
 
       void move(void* ptr, int index, int count) {
+
         cudaMemcpy(get_gpu_ptr(index), ptr, count * this->size_of_item, cudaMemcpyDefault);
       }
 
@@ -82,7 +84,8 @@ namespace caffe {
       Dtype* gpu_ptr;
     };
 
-  public:
+
+  private:
     boost::mutex mutex;
     deque<caffe::Batch<Dtype>*> batches_data;
     deque<caffe::Batch<Dtype>*> batches_empty;
@@ -90,22 +93,27 @@ namespace caffe {
 
     int pointer_in_batch;
     const int batch_size;
-    const int super_batch_factor;
+
+    int get_super_batch_size() {
+      return batch_size * super_batch_factor;
+    }
 
     GPUKeeper data;
     GPUKeeper labels;
 
     bool gpu_has;
 
+  public:
+    static const int super_batch_factor = 4;
+
     Handler(int batch_size,
             vector<int> data_shape,
             int data_size_of,
             vector<int> labels_shape,
             int labels_size_of) : batch_size(batch_size),
-                                  super_batch_factor(1),
+  //                                super_batch_factor(caffe::BasePrefetchingDataLayer::batch_size_factor),
                                   data(super_batch_factor * batch_size, batch_size, data_size_of, data_shape),
-                                  labels(super_batch_factor * batch_size, batch_size, labels_size_of, labels_shape)
-    {
+                                  labels(super_batch_factor * batch_size, batch_size, labels_size_of, labels_shape) {
       pointer_in_batch = 0;
       gpu_has = false;
     }
@@ -119,6 +127,7 @@ namespace caffe {
     }
 
     Dtype* get_batch_data_gpu_pointer_data() {
+      LOG(INFO) << "DATA pointer in batch: " << pointer_in_batch << " batchsize: " << batch_size;
       return data.get_gpu_ptr(pointer_in_batch);
     }
 
@@ -128,7 +137,9 @@ namespace caffe {
 
     void next() {
       pointer_in_batch++;
-      pointer_in_batch %= batch_size;
+      pointer_in_batch %= super_batch_factor;
+
+      LOG(INFO) << " pointer in batch: " << pointer_in_batch << " batchsize: " << batch_size;
 
       if (pointer_in_batch == 0) {
         boost::mutex::scoped_lock lock(mutex);
@@ -145,8 +156,9 @@ namespace caffe {
     }
 
     void move_data() {
-      data.move(current_batch->data_.mutable_cpu_data(), 0, super_batch_factor * batch_size);
-      labels.move(current_batch->label_.mutable_cpu_data(), 0, super_batch_factor * batch_size);
+      LOG(WARNING) << "@@@@@ @@@@@@@ Moving data";
+      data.move(current_batch->data_.mutable_cpu_data(), 0, get_super_batch_size());
+      labels.move(current_batch->label_.mutable_cpu_data(), 0, get_super_batch_size());
     }
 
     void set_super_batch(caffe::Batch<Dtype> *pBatch) {
@@ -160,6 +172,7 @@ namespace caffe {
         current_batch = batches_data[0];
         batches_data.pop_front();
         move_data();
+        gpu_has = true;
       }
     }
   };
@@ -212,7 +225,7 @@ class BasePrefetchingDataLayer :
   virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);
 
-  static const int batch_size_factor = 1;
+  //static const int batch_size_factor = 4;
 
  protected:
   virtual void InternalThreadEntry();

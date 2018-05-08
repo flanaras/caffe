@@ -42,16 +42,21 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     prefetch_[i].reset(new Batch<Dtype>());
     prefetch_free_.push(prefetch_[i].get());
   }
-  int batch_size = param.data_param().batch_size();
-  vector<int> data_shape;
-  data_shape.push_back(batch_size);
-  data_shape.push_back(3);
-  data_shape.push_back(227);
-  data_shape.push_back(227);
-  vector<int> label_shape;
-  data_shape.push_back(batch_size);
-  handler_.reset(new Handler<Dtype>(batch_size, data_shape, sizeof(Dtype) * 3 * 227 * 227, label_shape, sizeof(Dtype)));
-}
+  if (handler_.get() == NULL) {
+    int batch_size = param.data_param().batch_size();
+    vector<int> data_shape;
+    data_shape.push_back(batch_size);
+    data_shape.push_back(3);
+    data_shape.push_back(227);
+    data_shape.push_back(227);
+    vector<int> label_shape;
+    label_shape.push_back(batch_size);
+    handler_.reset(new Handler<Dtype>(batch_size, data_shape, sizeof(Dtype) * 3 * 227 * 227, label_shape, sizeof(Dtype)));
+  } else {
+    LOG(WARNING) << " >>>>>>>>>>>>> instantiated";
+  }
+
+  }
 
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
