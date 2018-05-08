@@ -70,7 +70,7 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
     }
   }
 #ifndef CPU_ONLY
-  if (Caffe::mode() == Caffe::GPU) {
+  if (Caffe::mode() == Caffe::GPU && false) {
     for (int i = 0; i < prefetch_.size(); ++i) {
       prefetch_[i]->data_.mutable_gpu_data();
       if (this->output_labels_) {
