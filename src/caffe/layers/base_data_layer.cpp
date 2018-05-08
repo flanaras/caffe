@@ -42,6 +42,15 @@ BasePrefetchingDataLayer<Dtype>::BasePrefetchingDataLayer(
     prefetch_[i].reset(new Batch<Dtype>());
     prefetch_free_.push(prefetch_[i].get());
   }
+  int batch_size = param.data_param().batch_size();
+  vector<int> data_shape;
+  data_shape.push_back(batch_size);
+  data_shape.push_back(3);
+  data_shape.push_back(227);
+  data_shape.push_back(227);
+  vector<int> label_shape;
+  data_shape.push_back(batch_size);
+  handler_.reset(new Handler<Dtype>(batch_size, data_shape, sizeof(Dtype) * 3 * 227 * 227, label_shape, sizeof(Dtype)));
 }
 
 template <typename Dtype>
@@ -87,6 +96,7 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
   try {
     while (!must_stop()) {
       Batch<Dtype>* batch = prefetch_free_.pop();
+      LOG(INFO) << ">>>>>>>>>>>> POP";
 #ifndef CPU_ONLY
       if (Caffe::mode() == Caffe::GPU && false) {
         batch->data_.data().get()->discard_gpu_data(stream);
@@ -96,7 +106,7 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
 #endif
       load_batch(batch);
 #ifndef CPU_ONLY
-      if (Caffe::mode() == Caffe::GPU) {
+      if (Caffe::mode() == Caffe::GPU && false) {
         batch->data_.data().get()->async_gpu_push(stream);
         if (this->output_labels_) {
           batch->label_.data().get()->async_gpu_push(stream);
@@ -105,6 +115,8 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
       }
 #endif
       prefetch_full_.push(batch);
+      LOG(INFO) << ">>>>>>>>>>>> PUSh";
+      handler_->set_super_batch(batch);
     }
   } catch (boost::thread_interrupted&) {
     // Interrupted exception is expected on shutdown
@@ -119,6 +131,7 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
 template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
+  LOG(FATAL) << " >>>>>>>>>>> Wrong layer";
   if (prefetch_current_) {
     prefetch_free_.push(prefetch_current_);
   }
