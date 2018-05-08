@@ -57,12 +57,15 @@ namespace caffe {
     public:
       GPUKeeper(int number_of_batches, int batch_size, int size_of_item, vector<int> shape) : number_of_batches(number_of_batches),
                                                                                               BookKeeping(batch_size, size_of_item, shape) {
+
         unsigned int sum = number_of_batches * size_of_item;
         // 227 * 227 * 3 * 256 * 4 * 4
         LOG(WARNING) << "    bs: " << this->batch_size << " nob: " << number_of_batches << " soi: " << size_of_item;
-        LOG(WARNING) << "    >> sum " << sum;
+        LOG(WARNING) << "    >> sum 2x" << sum;
         CUDA_CHECK(cudaMalloc(&gpu_ptr, sum));
         CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+        CUDA_CHECK(cudaEventCreateWithFlags(&async1, cudaEventDisableTiming));
+        CUDA_CHECK(cudaEventCreateWithFlags(&async2, cudaEventDisableTiming));
       }
 
       ~GPUKeeper() {
@@ -74,24 +77,40 @@ namespace caffe {
       }
 
       void move(void* ptr, int index, int count) {
+        CUDA_CHECK(cudaMemcpy(get_gpu_ptr(index), ptr, count * this->size_of_item, cudaMemcpyDefault));
+      }
+      void moveAsync(void* ptr, int index, int count) {
+        CUDA_CHECK(cudaMemcpyAsync(get_gpu_ptr(index), ptr, count * this->size_of_item, cudaMemcpyDefault, stream));
+        if (index == 0) {
+          CUDA_CHECK(cudaEventRecord(async1, stream));
+        } else {
+          CUDA_CHECK(cudaEventRecord(async2, stream));
+        }
+      }
 
-        cudaMemcpy(get_gpu_ptr(index), ptr, count * this->size_of_item, cudaMemcpyDefault);
+      void waitForAsync1() {
+        CUDA_CHECK(cudaEventSynchronize(async1));
+      }
+
+      void waitForAsync2() {
+        CUDA_CHECK(cudaEventSynchronize(async2));
       }
 
     private:
+      cudaEvent_t async1;
+      cudaEvent_t async2;
       const int number_of_batches;
       cudaStream_t stream;
       Dtype* gpu_ptr;
     };
 
-
   private:
     boost::mutex mutex;
     deque<caffe::Batch<Dtype>*> batches_data;
     deque<caffe::Batch<Dtype>*> batches_empty;
-    caffe::Batch<Dtype> *current_batch;
+    caffe::Batch<Dtype> *next_batch;
 
-    int pointer_in_batch;
+    int pointer_in_super_batch;
     const int batch_size;
 
     int get_super_batch_size() {
@@ -102,19 +121,20 @@ namespace caffe {
     GPUKeeper labels;
 
     bool gpu_has;
+    const int factor_in_gpu;
 
   public:
-    static const int super_batch_factor = 4;
+    static const int super_batch_factor = 2;
 
     Handler(int batch_size,
             vector<int> data_shape,
             int data_size_of,
             vector<int> labels_shape,
             int labels_size_of) : batch_size(batch_size),
-  //                                super_batch_factor(caffe::BasePrefetchingDataLayer::batch_size_factor),
-                                  data(super_batch_factor * batch_size, batch_size, data_size_of, data_shape),
-                                  labels(super_batch_factor * batch_size, batch_size, labels_size_of, labels_shape) {
-      pointer_in_batch = 0;
+                                  factor_in_gpu(2),
+                                  data(super_batch_factor * batch_size * 2, batch_size, data_size_of, data_shape),
+                                  labels(super_batch_factor * batch_size * 2, batch_size, labels_size_of, labels_shape) {
+      pointer_in_super_batch = 0;
       gpu_has = false;
     }
 
@@ -127,38 +147,40 @@ namespace caffe {
     }
 
     Dtype* get_batch_data_gpu_pointer_data() {
-      LOG(INFO) << "DATA pointer in batch: " << pointer_in_batch << " batchsize: " << batch_size;
-      return data.get_gpu_ptr(pointer_in_batch);
+      LOG(INFO) << "DATA pointer in super batch: " << pointer_in_super_batch << " batchsize: " << batch_size;
+      if (pointer_in_super_batch == 0) {
+        data.waitForAsync1();
+      } else if (pointer_in_super_batch == super_batch_factor) {
+        data.waitForAsync2();
+      }
+      return data.get_gpu_ptr(pointer_in_super_batch);
     }
 
     Dtype* get_batch_data_gpu_pointer_labels() {
-      return labels.get_gpu_ptr(pointer_in_batch);
+      if (pointer_in_super_batch == 0) {
+        data.waitForAsync1();
+      } else if (pointer_in_super_batch == super_batch_factor) {
+        data.waitForAsync2();
+      }
+      return labels.get_gpu_ptr(pointer_in_super_batch);
     }
 
     void next() {
-      pointer_in_batch++;
-      pointer_in_batch %= super_batch_factor;
+      pointer_in_super_batch++;
+      pointer_in_super_batch %= super_batch_factor * 2;
 
-      LOG(INFO) << " pointer in batch: " << pointer_in_batch << " batchsize: " << batch_size;
-
-      if (pointer_in_batch == 0) {
+      if (pointer_in_super_batch % super_batch_factor == 0) {
         boost::mutex::scoped_lock lock(mutex);
-        batches_empty.push_back(current_batch);
+        batches_data.push_back(next_batch);
 
         if (batches_data.size() == 0) {
           LOG(ERROR) << ">>>>>>>>>>> end of batches";
           exit(0);
         }
-        current_batch = batches_data[0];
+        next_batch = batches_data[0];
         batches_data.pop_front();
-        move_data();
+        move_data_async();
       }
-    }
-
-    void move_data() {
-      LOG(WARNING) << "@@@@@ @@@@@@@ Moving data";
-      data.move(current_batch->data_.mutable_cpu_data(), 0, get_super_batch_size());
-      labels.move(current_batch->label_.mutable_cpu_data(), 0, get_super_batch_size());
     }
 
     void set_super_batch(caffe::Batch<Dtype> *pBatch) {
@@ -166,15 +188,47 @@ namespace caffe {
         boost::mutex::scoped_lock lock(mutex);
         batches_data.push_back(pBatch);
       }
-      if (!gpu_has) {
+      {
         boost::mutex::scoped_lock lock(mutex);
+        if (!gpu_has && batches_data.size() == 2) {
 
-        current_batch = batches_data[0];
-        batches_data.pop_front();
-        move_data();
-        gpu_has = true;
+          next_batch = batches_data[0];
+          batches_data.pop_front();
+          move_data(0);
+          batches_data.push_back(next_batch);
+
+          next_batch = batches_data[0];
+          batches_data.pop_front();
+          move_data_async();
+
+          gpu_has = true;
+        }
       }
     }
+
+  private:
+    void move_data(int offset) {
+      LOG(INFO) << " ------------ Moving data";
+      data.move(next_batch->data_.mutable_cpu_data(), offset, get_super_batch_size());
+      labels.move(next_batch->label_.mutable_cpu_data(), offset, get_super_batch_size());
+    }
+
+    void move_data_async() {
+      LOG(INFO) << " ------------ Moving data Async";
+      data.moveAsync(next_batch->data_.mutable_cpu_data(), get_unused_offset(), get_super_batch_size());
+      labels.moveAsync(next_batch->label_.mutable_cpu_data(), get_unused_offset(), get_super_batch_size());
+    }
+
+    int get_unused_offset() const {
+      int offset;
+      if (pointer_in_super_batch < super_batch_factor) {
+        offset = super_batch_factor;
+      } else {
+        offset = 0;
+      }
+      return offset;
+    }
+
   };
 
 /**
@@ -224,8 +278,6 @@ class BasePrefetchingDataLayer :
       const vector<Blob<Dtype>*>& top);
   virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);
-
-  //static const int batch_size_factor = 4;
 
  protected:
   virtual void InternalThreadEntry();
