@@ -28,7 +28,7 @@ DataLayer<Dtype>::~DataLayer() {
 template <typename Dtype>
 void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
-  const int batch_size = this->layer_param_.data_param().batch_size() * caffe::Handler<Dtype>::super_batch_factor;
+  const int batch_size = this->layer_param_.data_param().batch_size();
   // Read a data point, and use it to initialize the top blob.
   Datum datum;
   datum.ParseFromString(cursor_->value());
@@ -40,6 +40,7 @@ void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   top_shape[0] = batch_size;
   top[0]->Reshape(top_shape);
   for (int i = 0; i < this->prefetch_.size(); ++i) {
+    top_shape[0] = batch_size * caffe::Handler<Dtype>::super_batch_factor;
     this->prefetch_[i]->data_.Reshape(top_shape);
   }
   LOG_IF(INFO, Caffe::root_solver())
@@ -50,6 +51,7 @@ void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   if (this->output_labels_) {
     vector<int> label_shape(1, batch_size);
     top[1]->Reshape(label_shape);
+    label_shape[0] = batch_size * caffe::Handler<Dtype>::super_batch_factor;
     for (int i = 0; i < this->prefetch_.size(); ++i) {
       this->prefetch_[i]->label_.Reshape(label_shape);
     }
