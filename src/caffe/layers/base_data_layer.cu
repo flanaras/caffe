@@ -10,12 +10,6 @@ template <typename Dtype>
 void BasePrefetchingDataLayer<Dtype>::Forward_gpu(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
 
-  if (this->layer_param_.phase() == TEST) {
-    LOG(WARNING) << "> >>>>>>>>>>>>>>>>>>>>> TEST";
-  } else {
-    LOG(WARNING) << "> >>>>>>>>>>>>>>>>>>>>> Train ,<<<<<<<<<<<<<<,";
-  }
-
   top[0]->Reshape(handler_->get_batch_data_shape());
   top[0]->set_gpu_data(handler_->get_batch_data_gpu_pointer_data());
 
@@ -24,12 +18,7 @@ void BasePrefetchingDataLayer<Dtype>::Forward_gpu(
     top[1]->set_gpu_data(handler_->get_batch_data_gpu_pointer_labels());
   }
 
-  LOG_IF(INFO, Caffe::root_solver()) << "DATA: " << typeid(Dtype).name() << " >>> " << top[0]->shape_string();
-  LOG_IF(INFO, Caffe::root_solver()) << "Label: " << typeid(float).name() << " >>> " <<  top[1]->shape_string();
-
   handler_->next();
-
-  LOG_IF(INFO, Caffe::root_solver()) << " NEXTAAAAAAAAAAAAAAAAA";
 }
 
 #else
