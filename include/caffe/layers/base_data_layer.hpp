@@ -48,21 +48,22 @@ namespace caffe {
         return size_of_item * batch_size;
       }
 
-      const int batch_size;
-      const int size_of_item;
+      const unsigned int batch_size;
+      const unsigned int size_of_item;
       vector<int> shape;
     };
 
     class GPUKeeper : public BookKeeping {
     public:
-      GPUKeeper(int number_of_batches, int batch_size, int size_of_item, vector<int> shape) : number_of_batches(number_of_batches),
+      GPUKeeper(int number_of_items, int batch_size, int size_of_item, vector<int> shape) : number_of_items(number_of_items),
                                                                                               BookKeeping(batch_size, size_of_item, shape) {
 
-        unsigned int sum = number_of_batches * size_of_item;
+        unsigned int sum = number_of_items * size_of_item;
         // 227 * 227 * 3 * 256 * 4 * 4
-        LOG(WARNING) << "    bs: " << this->batch_size << " nob: " << number_of_batches << " soi: " << size_of_item;
-        LOG(WARNING) << "    >> sum 2x" << sum;
+        LOG(WARNING) << "    bs: " << this->batch_size << " noi: " << number_of_items << " soi: " << size_of_item;
+        LOG(WARNING) << "    >> sum: " << sum;
         CUDA_CHECK(cudaMalloc(&gpu_ptr, sum));
+        LOG(WARNING) << "    >> ptr: " << gpu_ptr;
         CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
         CUDA_CHECK(cudaEventCreateWithFlags(&async1, cudaEventDisableTiming));
         CUDA_CHECK(cudaEventCreateWithFlags(&async2, cudaEventDisableTiming));
@@ -73,7 +74,8 @@ namespace caffe {
       }
 
       Dtype* get_gpu_ptr(int batch_id) {
-        return gpu_ptr + batch_id * this->size_of_batch() / sizeof(Dtype);
+        LOG(WARNING) << "    >> ptr: " << gpu_ptr + batch_id * this->size_of_batch() / sizeof(Dtype);
+        return gpu_ptr + static_cast<unsigned long int>(batch_id * this->size_of_batch() / sizeof(Dtype));
       }
 
       void move(void* ptr, int index, int count) {
@@ -99,7 +101,7 @@ namespace caffe {
     private:
       cudaEvent_t async1;
       cudaEvent_t async2;
-      const int number_of_batches;
+      const int number_of_items;
       cudaStream_t stream;
       Dtype* gpu_ptr;
     };
@@ -124,16 +126,17 @@ namespace caffe {
     const int factor_in_gpu;
 
   public:
-    static const int super_batch_factor = 2;
+    static const int super_batch_factor = 4;
+    static const int _factor_in_gpu = 2;
 
     Handler(int batch_size,
             vector<int> data_shape,
             int data_size_of,
             vector<int> labels_shape,
             int labels_size_of) : batch_size(batch_size),
-                                  factor_in_gpu(2),
-                                  data(super_batch_factor * batch_size * 2, batch_size, data_size_of, data_shape),
-                                  labels(super_batch_factor * batch_size * 2, batch_size, labels_size_of, labels_shape) {
+                                  factor_in_gpu(_factor_in_gpu),
+                                  data(super_batch_factor * batch_size * _factor_in_gpu, batch_size, data_size_of, data_shape),
+                                  labels(super_batch_factor * batch_size * _factor_in_gpu, batch_size, labels_size_of, labels_shape) {
       pointer_in_super_batch = 0;
       gpu_has = false;
     }
@@ -167,7 +170,7 @@ namespace caffe {
 
     void next() {
       pointer_in_super_batch++;
-      pointer_in_super_batch %= super_batch_factor * 2;
+      pointer_in_super_batch %= super_batch_factor * factor_in_gpu;
 
       if (pointer_in_super_batch % super_batch_factor == 0) {
         boost::mutex::scoped_lock lock(mutex);
